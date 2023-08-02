@@ -1,0 +1,30 @@
+{
+	"ios":{
+		"leaderboardid":"com.lugesoft.bridges.leaderboards",
+		"appid":"982643233",
+		"admob_interstitial_adunit_id":"ca-app-pub-2343914965033173/6137352045",
+		"admob_banner_adunit_id":"ca-app-pub-2343914965033173/4660618840"
+	},
+	
+	"android":{
+		"leaderboardid":"CgkI1qekoscbEAIQAA",
+		"admob_interstitial_adunit_id":"ca-app-pub-2343914965033173/3183885644",
+		"admob_banner_adunit_id":"ca-app-pub-2343914965033173/1707152449"
+	},
+	
+	"editor":{
+		"leaderboardid":"some id",
+		"unityads_appid":0
+	},
+
+	"characters":{
+		"default":"character_cube",
+
+		"character_cube":"Characters/Character_CUBE",
+		"character_kyle":"Characters/Character_RobotKyle",
+		"character_teddy_dark":"Characters/Character_Teddy1",
+		"character_teddy":"Characters/Character_Teddy2",
+		"character_u":"Characters/Character_U",
+		"character_zombie":"Characters/Character_Zombie"
+	}
+}

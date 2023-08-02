@@ -1,0 +1,6 @@
+lastUpgrade=00911
+proj.AppId=946843751382
+android.SetupDone=true
+ios.ClientId=946843751382-d53cpbsq6033vuvot48fgngt4bosp3jm.apps.googleusercontent.com
+ios.BundleId=com.lugesoft.bridges
+ios.SetupDone=true

@@ -1,0 +1,16 @@
+Recorded by Iwan "qubodup" Gabovitch using Rosegarden. Edited using Audacity
+
+Do what you want with them or see the license as "Public Domain Dedication" or "CC0".
+
+
+
+Extra Info From Gameera inc.
+
+ - Action (Loud Ending) - user beat local high score
+ - Action (Qiet Ending) - user lose, don't beat a high score
+ - dingCling-neutral - button click
+ - dingCling-negative - button click, not enough coins. button clicked, no action is performed
+ 
+ - Background Track located in /Assets/Sound/Action (calm or searching)
+
+ - upshort - coin pickup

@@ -1,0 +1,698 @@
+﻿using UnityEngine;
+using System.Collections;
+using GooglePlayGames;
+using UnityEngine.SocialPlatforms;
+using UnityEngine.SocialPlatforms.GameCenter;
+public class HeroGame : MonoBehaviour {
+
+	states _state;
+	float _time=0;
+	float _time2=0;
+	 const float kGrowTime	=	0.01f;
+	 const float kPlayerSpeed = 	8.0f;
+
+	int _blocksSpawned = 0;
+
+	int 	_numRopes = 0;
+	GameObject _player = null;
+	GameObject _next_block = null;
+	Transform _endPositionRope	=	null;
+
+    GameObject GameLayer;
+	float minDistance = 3.0f;
+	float maxDistance = 14.0f;
+
+	float shifting_time=0;
+	float wait_for_shift_time=0;
+
+	string LeaderboardId;
+
+    public GameObject[] WorldExtraScoreEffect;
+
+	public BackgroundParallax Background = null;
+
+	float BlockLevelY = -1.5f;
+	int _score=0;
+
+	int AD_COUNTER = 0;
+
+	public GameObject GameOverPanel = null;
+	public UnityEngine.UI.Text		  ingameScore = null;
+	public GameObject IngamePanel = null;
+	public AudioSource _posSrc = null;
+	public AudioClip 	_fallClip = null;
+	public AudioClip 	_stepClip = null;
+	public AudioSource _yeahSrc = null;
+	public GameObject  _newRecordLabel = null;
+	
+
+
+    Transform StartPoint;
+	ArrayList _clips;
+	bool armed = false;
+	enum states
+	{
+			wait_for_finger=0,
+			grow_rope,
+			rope_goes_down,
+			man_in_run,
+			man_in_fall,
+			wait_before_shift_to_cycle,
+			shift_to_cycle,
+			game_over
+	};
+
+    IDictionary CharactersMap;
+	void Start () {
+
+
+        // Get game bounds and container for player
+        GameLayer = GameObject.Find("Game Bounds");
+
+        
+		//_fallClip = Resources.Load<AudioClip> ("Sounds/fall");
+		//_stepClip = Resources.Load<AudioClip> ("Sounds/stepdone");
+		_clips = new ArrayList ();
+		AudioClip ac = Resources.Load<AudioClip>("Sounds/pok1");
+		_clips.Add (ac);
+		ac = Resources.Load<AudioClip>("Sounds/pok1");
+		_clips.Add (ac);
+		ac = Resources.Load<AudioClip>("Sounds/pok1");
+		_clips.Add (ac);
+
+
+
+		string rawString = Resources.Load<TextAsset>("GenericAppData").text;
+		IDictionary root = (IDictionary) MiniJSON.Json.Deserialize (rawString);
+        CharactersMap = (IDictionary)root["characters"];
+		IDictionary platform = null;
+		#if UNITY_IPHONE
+		platform = (IDictionary)root ["ios"];
+		Debug.Log("Authentificating to social");
+		
+		// Auth to GameCenter
+		Social.localUser.Authenticate((bool success) => {
+			Social.localUser.ToString();
+		});
+
+		#else 
+		#if UNITY_ANDROID
+		platform = (IDictionary)root ["android"];
+		#endif
+		#endif
+
+		Application.targetFrameRate = 60;
+
+		if (platform != null) {
+			LeaderboardId = platform ["leaderboardid"].ToString ();
+		}
+
+		if (MenuLogic.IsAdRemoved()==false)
+		{
+			GetComponent<AdMobProvider>().ShowBanner(false);
+		}
+
+
+		#if UNITY_ANDROID
+		PlayGamesPlatform.Activate();
+		#endif
+
+        GetComponent<MenuLogic>().pushMenu(IngamePanel);
+
+        string character_code = PlayerPrefs.GetString("CurrentCharacterCode");
+        if (character_code == null || character_code.Length == 0) {
+			character_code = CharactersMap ["default"].ToString ();
+			PlayerPrefs.SetString("CurrentCharacterCode",character_code);
+			PlayerPrefs.Save();
+		}
+
+		RestartGame ();
+	}
+
+	public void HideBanners()
+	{
+		GetComponent<AdMobProvider> ().HideBanner ();
+	}
+	public void RestartGame()
+	{
+		Background.Regenerate ();
+
+        GetComponent<MenuLogic>().popMenu();
+
+        // Spawn selected character
+        string character_code = PlayerPrefs.GetString("CurrentCharacterCode");
+
+		if (CharactersMap.Contains (character_code) == false)
+			character_code = CharactersMap ["default"].ToString ();
+
+        string CharacterPrefabName = CharactersMap[character_code].ToString();
+        if (_player != null) Destroy(_player);
+        _player = Resources.Load<GameObject>(CharacterPrefabName);
+        if (_player != null)
+        {
+            _player = (GameObject)GameObject.Instantiate(_player.gameObject);
+            _player.transform.parent = GameLayer.transform;
+        }
+        else
+            Debug.LogError("Character prefab '" + CharacterPrefabName + "' is failed to load");
+
+		_score = 0;
+
+		ingameScore.text = _score.ToString();
+
+		_player.transform.position = Vector3.zero;
+		_player.GetComponent<Rigidbody>().useGravity = false;
+		_player.GetComponent<Rigidbody>().velocity = Vector3.zero;
+		_player.GetComponent<Rigidbody>().angularVelocity = Vector3.zero;
+
+	
+		_player.transform.rotation = Quaternion.identity;
+
+		// Perform Reset Skin For play
+		_player.GetComponent<IBridgesCharacterController> ().Reset ();
+
+
+		Animator animator = _player.GetComponent<Animator>();
+		if (animator!=null){
+			animator.Play("Idle State",0,0);
+		}
+
+
+        for (int i = 0; i < GameLayer.transform.childCount; i++) 
+		{
+            GameObject obj = GameLayer.transform.GetChild(i).gameObject;
+			if (obj.name.Contains("Block"))
+					Destroy(obj);
+		}
+
+		Transform blocks_collection = GameObject.Find ("BlocksCollection").transform;
+
+		GameObject block_ref = blocks_collection.GetChild (Random.Range(0,blocks_collection.childCount-1)).gameObject;
+
+		GameObject aStartBlock = (GameObject)GameObject.Instantiate (block_ref);
+        aStartBlock.transform.parent = GameLayer.transform;
+		aStartBlock.transform.localPosition = new Vector3 (_player.GetComponent<Collider>().bounds.center.x, BlockLevelY, 0);
+		aStartBlock.transform.FindChild ("rope_start").gameObject.tag = "rope_start";
+		aStartBlock.transform.FindChild ("rope_container").gameObject.tag = "rope_container";
+
+		GameObject aNextBlock = (GameObject)GameObject.Instantiate (block_ref);
+        aNextBlock.transform.parent = GameLayer.transform;
+		aNextBlock.transform.position = new Vector3 (0
+		                                             + aNextBlock.GetComponent<Collider>().bounds.extents.x
+		                                             + Random.Range(minDistance,maxDistance)
+		                                             , BlockLevelY, aNextBlock.transform.position.z);
+		_next_block = aNextBlock;
+
+
+
+		_numRopes = 0;
+
+		armed = false;
+		_state = states.wait_for_finger;
+	}
+	public void ContinueGame()
+	{
+		Background.Regenerate ();
+		
+		GetComponent<MenuLogic>().popMenu();
+		
+		// Spawn selected character
+		string character_code = PlayerPrefs.GetString("CurrentCharacterCode");
+		
+		if (CharactersMap.Contains (character_code) == true)
+			character_code = CharactersMap ["default"].ToString ();
+		
+		string CharacterPrefabName = CharactersMap[character_code].ToString();
+		if (_player != null) Destroy(_player);
+		_player = Resources.Load<GameObject>(CharacterPrefabName);
+		if (_player != null)
+		{
+			_player = (GameObject)GameObject.Instantiate(_player.gameObject);
+			_player.transform.parent = GameLayer.transform;
+		}
+		else
+			Debug.LogError("Character prefab '" + CharacterPrefabName + "' is failed to load");
+
+		int lastscore = PlayerPrefs.GetInt("last_score");
+		_score = lastscore;
+		
+		ingameScore.text = _score.ToString();
+		
+		_player.transform.position = Vector3.zero;
+		_player.GetComponent<Rigidbody>().useGravity = false;
+		_player.GetComponent<Rigidbody>().velocity = Vector3.zero;
+		_player.GetComponent<Rigidbody>().angularVelocity = Vector3.zero;
+		
+		
+		_player.transform.rotation = Quaternion.identity;
+		
+		// Perform Reset Skin For play
+		_player.GetComponent<IBridgesCharacterController> ().Reset ();
+		
+		
+		Animator animator = _player.GetComponent<Animator>();
+		if (animator!=null){
+			animator.Play("Idle State",0,0);
+		}
+		
+		
+		for (int i = 0; i < GameLayer.transform.childCount; i++) 
+		{
+			GameObject obj = GameLayer.transform.GetChild(i).gameObject;
+			if (obj.name.Contains("Block"))
+				Destroy(obj);
+		}
+		
+		Transform blocks_collection = GameObject.Find ("BlocksCollection").transform;
+		
+		GameObject block_ref = blocks_collection.GetChild (Random.Range(0,blocks_collection.childCount-1)).gameObject;
+		
+		GameObject aStartBlock = (GameObject)GameObject.Instantiate (block_ref);
+		aStartBlock.transform.parent = GameLayer.transform;
+		aStartBlock.transform.localPosition = new Vector3 (_player.GetComponent<Collider>().bounds.center.x, BlockLevelY, 0);
+		aStartBlock.transform.FindChild ("rope_start").gameObject.tag = "rope_start";
+		aStartBlock.transform.FindChild ("rope_container").gameObject.tag = "rope_container";
+		
+		GameObject aNextBlock = (GameObject)GameObject.Instantiate (block_ref);
+		aNextBlock.transform.parent = GameLayer.transform;
+		aNextBlock.transform.position = new Vector3 (0
+		                                             + aNextBlock.GetComponent<Collider>().bounds.extents.x
+		                                             + Random.Range(minDistance,maxDistance)
+		                                             , BlockLevelY, aNextBlock.transform.position.z);
+		_next_block = aNextBlock;
+		
+		
+		
+		_numRopes = 0;
+		
+		armed = false;
+		_state = states.wait_for_finger;
+	}
+	// Update is called once per frame
+	void Update () {
+
+		if ( _state==states.wait_for_finger)
+		{
+			_player.transform.position = Vector3.zero;
+#if UNITY_EDITOR
+			if (Input.GetKeyDown(KeyCode.Space))
+#else
+			if (!armed  && Input.touchCount==0)
+			{
+				armed=true;
+			}
+			if (armed && Input.touchCount>0)
+#endif		
+			{
+				_time=0;
+				_time2=0;
+				_state = states.grow_rope;
+			}
+		}
+		if (_state==states.grow_rope)
+		{
+			_time+=Time.deltaTime;_time2+=Time.deltaTime;
+
+			if (_time2> kGrowTime*7.0f)
+			{
+				_posSrc.clip=(AudioClip)_clips[Random.Range(0,_clips.Count-1)];
+				_posSrc.Play();
+
+				_time2=0;
+			}
+
+			while (_time > kGrowTime)
+			{
+
+					// Add a new block
+				GameObject refer = GameObject.FindGameObjectWithTag("rope");
+				GameObject aNewObject = (GameObject)GameObject.Instantiate(refer);
+				Transform ropeStart = GameObject.FindGameObjectWithTag("rope_start").transform;
+				Transform ropeContainer = GameObject.FindGameObjectWithTag("rope_container").transform;
+
+                IBridgesCharacterController controller = _player.GetComponent<IBridgesCharacterController>();
+                if (controller)
+                    controller.ModifyANewBlock(aNewObject);
+
+				aNewObject.transform.position= new  Vector3 ( ropeStart.position.x,
+				                                              ropeStart.position.y + _numRopes  * aNewObject.GetComponent<Collider>().bounds.extents.y * 2,
+				                                              ropeStart.position.z
+				                                             );
+
+				aNewObject.transform.parent = ropeContainer;
+				_endPositionRope = aNewObject.transform;
+
+				_numRopes++;
+
+				_time=-kGrowTime;
+			}
+#if UNITY_EDITOR
+			if ( Input.GetKeyUp(KeyCode.Space))
+#else
+			if (Input.touchCount==0)
+#endif
+			{
+				_state=states.rope_goes_down;
+
+
+				_time=0;
+			}
+		}
+
+		if (_state==states.rope_goes_down)
+		{
+			_time+=Time.deltaTime*2.0f;
+
+			if (_time > 1 ) _time=1;
+
+			Transform ropeContainer = GameObject.FindGameObjectWithTag("rope_container").transform;
+			ropeContainer.transform.eulerAngles = new Vector3(0,0,_time * -90);
+
+			if (_time==1)
+			{
+				_state=states.man_in_run;
+				Rigidbody chuvak = _player.GetComponent<Rigidbody>();
+				Animator animator = _player.GetComponent<Animator>();
+				if (animator!=null){
+					animator.Play("PlayerMove_Animation",0,0);
+				}else
+				{
+					chuvak.velocity = new Vector3(kPlayerSpeed,0,0);
+				}
+				_time=0;
+
+				_player.GetComponent<IBridgesCharacterController>().OnStartMove();
+			}
+		}
+
+		if (_state == states.man_in_run) 
+		{
+			Transform chuvak = _player.transform;
+			if (chuvak.position.x > _endPositionRope.position.x)
+			{
+				Rigidbody chuvak_rb = _player.GetComponent<Rigidbody>();
+
+                _player.GetComponent<IBridgesCharacterController>().OnEndMove();
+
+				chuvak_rb.velocity = Vector3.zero;
+
+
+				float minX = _next_block.GetComponent<Collider>().bounds.min.x;
+				float maxX = _next_block.GetComponent<Collider>().bounds.max.x;
+
+                float playerX = _player.GetComponent<IBridgesCharacterController>().UseBridgeAsFinalPoint ?
+								_endPositionRope.GetComponent<Collider>().bounds.max.x:
+								_player.GetComponent<Collider>().bounds.center.x;
+
+				bool BoxOnBlock = false;
+
+
+                if (_player.GetComponent<IBridgesCharacterController>().AnyBoxSideCounts)
+				{
+					BoxOnBlock = ( _player.GetComponent<Collider>().bounds.max.x> minX &&
+						_player.GetComponent<Collider>().bounds.max.x < maxX ) || 
+						( _player.GetComponent<Collider>().bounds.min.x> minX &&
+						 _player.GetComponent<Collider>().bounds.min.x < maxX );
+				}
+
+				if ((playerX < minX ||
+				    playerX > maxX ) && BoxOnBlock==false)
+				{
+
+					// Shoud fall here.
+					chuvak_rb.useGravity=true;
+
+                    _player.GetComponent<IBridgesCharacterController>().OnStartFall();
+
+                 
+					_state = states.man_in_fall;
+
+					_posSrc.clip =  _fallClip;
+					_posSrc.Play();
+
+					_time=1;
+				}else{
+
+					// shift to new block and generate next block
+					Bounds b = _next_block.transform.FindChild("hotspot").gameObject.GetComponent<Collider>().bounds;
+                    bool hasExtraScore = false;
+					if (_endPositionRope.position.x > b.min.x &&
+					    _endPositionRope.position.x < b.max.x )
+					{
+						// Hot Spot !!!!
+						_score++;
+						_yeahSrc.Play();
+
+                        hasExtraScore = true;
+
+						// Spawn +1 animation
+						// You can put it whereever you need (above player head or total ingame score )
+                        if (WorldExtraScoreEffect!=null)
+                        {
+                            foreach (var ExtraScoreEffect in WorldExtraScoreEffect)
+                            {
+                                if (ExtraScoreEffect != null)
+                                    ExtraScoreEffect.SetActive(true);
+                                Animator extraScore_animator = ExtraScoreEffect.GetComponent<Animator>();
+                                if (extraScore_animator != null) extraScore_animator.Play("Player_ExtraScoreAnimation", 0, 0);
+                            }
+                        }
+					}
+
+                    _player.GetComponent<IBridgesCharacterController>().OnSuccessLanding(hasExtraScore, _next_block);
+
+                    Animator animator = _player.GetComponent<Animator>();
+                    if (animator != null)
+                    {
+                        animator.Play("Idle State", 0, 0);
+                    }
+
+					_posSrc.clip=_stepClip;
+					_posSrc.Play();
+
+					GameObject oldRopeStart = GameObject.FindGameObjectWithTag("rope_start");
+					GameObject oldRopeContainer = GameObject.FindGameObjectWithTag("rope_container");
+
+					if (oldRopeStart)
+						oldRopeStart.tag="Untagged";
+					if (oldRopeContainer)
+						oldRopeContainer.tag="Untagged";
+
+					if ( _next_block.GetComponent<ScoreCounter>() !=null )
+						_next_block.GetComponent<ScoreCounter>().Score(_player.GetComponent<BridgesCharacterController>());
+
+
+
+					Transform blocks_collection = GameObject.Find ("BlocksCollection").transform;
+					
+					GameObject block_ref =(GameObject) GameObject.Instantiate(
+						blocks_collection.GetChild (Random.Range(0,blocks_collection.childCount-1)).gameObject);
+
+					GameObject aNewBlock = block_ref;
+
+					aNewBlock.transform.position = new Vector3 ( _player.transform.position.x
+					                                              + aNewBlock.GetComponent<Collider>().bounds.extents.x
+					                                              + Random.Range(minDistance,maxDistance)
+					                                            , BlockLevelY, 
+					                                                aNewBlock.transform.position.z);
+
+
+
+					GameObject nextRopeStart = _next_block.transform.FindChild("rope_start").gameObject;
+					nextRopeStart.tag="rope_start";
+					GameObject newRopeContainer = _next_block.transform.FindChild("rope_container").gameObject;
+					newRopeContainer.tag="rope_container";
+
+					_next_block=aNewBlock;
+
+					_next_block.transform.parent=GameObject.Find("Game Bounds").transform;
+
+					_state = states.wait_before_shift_to_cycle;
+					wait_for_shift_time=0.3f;
+                    _player.GetComponent<IBridgesCharacterController>().OnStartShift();
+
+					_score++;
+					
+					ingameScore.text = _score.ToString();
+					ingameScore.GetComponent<Animator>().Play("ScoreBlinkAnimation",0,0);
+
+					_numRopes = 0;
+
+					_blocksSpawned ++;
+                    // Spawn a Coin
+					float CoinVariance = (_blocksSpawned % 5 == 0) ? 100 : 10; //  of 100
+                    if ( Random.Range(0,100)<CoinVariance)
+                    {
+                        GameObject Coin = Resources.Load<GameObject>("Prefabs/Coin");
+                        if (Coin!=null)
+                        {
+                            Coin = (GameObject)Instantiate(Coin);
+                            
+                            
+                            
+                            // If Block Gameobject has a child named as "CoinPlace" it will be used as a place for coin
+                            Transform coinPlace = _next_block.transform.FindChild("CoinPlace");
+                            if (coinPlace!=null)
+                            {
+                                Coin.transform.parent = coinPlace.transform;
+                                Coin.transform.localPosition = Vector3.zero;
+                                Coin.transform.localScale = Vector3.one;
+                                Coin.transform.rotation = Quaternion.identity;
+                            }
+                            else
+                            {
+                                // otherwise center of collider is used. but placed on top of it
+                                Coin.transform.parent = _next_block.transform;
+                                Coin.transform.position = new Vector3(_next_block.GetComponent<Collider>().bounds.center.x,
+                                    _next_block.GetComponent<Collider>().bounds.max.y,
+                                    _next_block.GetComponent<Collider>().bounds.center.z
+                                    );
+                                Coin.transform.localScale = Vector3.one;
+                                Coin.transform.rotation = Quaternion.identity;
+                            }
+                        }
+                    }
+
+				}
+			}
+		}
+		if (_state == states.wait_before_shift_to_cycle) {
+			wait_for_shift_time -= Time.deltaTime;
+			if (wait_for_shift_time<=0)
+			{
+				_state = states.shift_to_cycle;
+				shifting_time=0;
+			}
+		}
+		if (_state == states.shift_to_cycle) {
+			GameObject game_layer = GameObject.Find ("Game Bounds");
+			shifting_time+=Time.deltaTime;
+			float offset = (Time.deltaTime+shifting_time*0.4f)*15;
+			offset += Mathf.Min(_player.transform.localPosition.x-offset,0);
+			Background.PerformOffset(new Vector3(-offset,0,0));
+
+			for (int i = 0; i < game_layer.transform.childCount; i++) 
+			{
+				GameObject obj  = game_layer.transform.GetChild(i).gameObject;
+				obj.transform.position = new Vector3(obj.transform.position.x - offset,
+				                                     obj.transform.position.y,
+				                                     obj.transform.position.z);
+			}
+
+			ParticleSystem[] pss = _player.GetComponentsInChildren<ParticleSystem>();
+			Vector3 ParticlesOffset = new Vector3(-offset,0,0);
+			foreach( var ps in pss)
+			{
+				ParticleSystem.Particle[] particles = new ParticleSystem.Particle[ps.particleCount];
+				ps.GetParticles(particles);
+
+				for ( int p = 0; p < particles.Length;++p)
+					particles[p].position+=ParticlesOffset;
+
+				ps.SetParticles(particles,particles.Length);
+			}
+
+			if (_player.transform.localPosition.x <= 0 )
+			{
+
+//				float extraOffset = _player.transform.localPosition.x;
+
+				_player.transform.localPosition = new Vector3(
+
+					0,
+					_player.transform.localPosition.y,
+					_player.transform.localPosition.z
+					);
+
+                _player.GetComponent<IBridgesCharacterController>().OnEndShift();
+
+
+				_state = states.wait_for_finger;
+			}
+		}
+
+		if (_state == states.man_in_fall) 
+		{
+			_time += Time.deltaTime*2.0f;
+			if (_time > 3 ){
+                GetComponent<MenuLogic>().pushMenu(GameOverPanel);
+				
+				IngamePanel.SetActive(false);
+
+				int bestScore = PlayerPrefs.GetInt("best_score");
+
+				// Show New Record Title
+				StartCoroutine(PlayNewRecordSound(0.2f, bestScore<_score));
+				_newRecordLabel.SetActive(_score>bestScore);
+
+				bestScore=_score>bestScore?_score:bestScore;
+				PlayerPrefs.SetInt("best_score",bestScore);
+				PlayerPrefs.SetInt("last_score",_score);
+				PlayerPrefs.Save();
+
+
+
+				_time=3;
+
+				GetComponent<MenuLogic>().updateStates();
+
+				if (Social.localUser.authenticated)
+				{
+					Social.ReportScore(_score, LeaderboardId, (bool success) => {
+					});
+				}
+
+				if (MenuLogic.IsAdRemoved()==false)
+				{
+					AD_COUNTER++;
+					if (AD_COUNTER%5==0){
+
+						GetComponent<AdMobProvider>().ShowInterstitial();
+
+                    }
+				}
+
+				_state = states.game_over;
+			}
+
+
+
+			float tt = _time>2?2:_time;
+			Transform ropeContainer = GameObject.FindGameObjectWithTag("rope_container").transform;
+			ropeContainer.transform.eulerAngles = new Vector3(0,0,tt * -90);
+
+
+
+		}
+
+
+		clearObjects ();
+	}
+
+	IEnumerator PlayNewRecordSound(float delay, bool newRecord)
+	{
+		yield return new WaitForSeconds (delay);
+		GameObject.FindGameObjectWithTag ("MainCamera").GetComponent<AudioSource>().PlayOneShot (Resources.Load<AudioClip> (
+			newRecord?"Sounds/Action (Loud Ending)":"Sounds/Action (Qiet Ending)"
+			), 1);
+	}
+
+	void clearObjects()
+	{
+		GameObject game_layer = GameObject.Find ("Game Bounds");
+		for (int i = 0; i < game_layer.transform.childCount; i++) 
+		{
+			GameObject obj  = game_layer.transform.GetChild(i).gameObject;
+			if (obj.name.Contains("Block"))
+			{
+				if ( obj.transform.position.x < game_layer.GetComponent<Collider>().bounds.min.x)
+					Destroy(obj,1);
+			}
+		}
+	}
+
+    public void OnBuyCoins()
+    {
+
+    }
+}
